@@ -38,19 +38,14 @@
 </head>
 <body class="text-gray-800 h-screen flex flex-col p-4 md:p-6 lg:max-w-6xl mx-auto">
 
-    <header class="mb-6 flex justify-between items-center">
-        <div class="flex items-center gap-3">
-            <div class="bg-blue-600 text-white p-3 rounded-lg shadow-md">
-                <i class="fa-solid fa-scissors text-xl"></i>
-            </div>
-            <div>
-                <h1 class="text-2xl font-bold text-gray-900">Audio Splitter Web</h1>
-                <p class="text-sm text-gray-500">Tách và nghe thử Audio ngay trên trình duyệt</p>
-            </div>
+    <header class="mb-6 text-center md:text-left flex items-center gap-3">
+        <div class="bg-blue-600 text-white p-3 rounded-lg shadow-md">
+            <i class="fa-solid fa-scissors text-xl"></i>
         </div>
-        <button id="fullscreenBtn" class="w-10 h-10 flex items-center justify-center text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-colors focus:outline-none" title="Toàn màn hình">
-            <i class="fa-solid fa-expand text-xl"></i>
-        </button>
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Audio Splitter Web</h1>
+            <p class="text-sm text-gray-500">Tách và nghe thử Audio ngay trên trình duyệt</p>
+        </div>
     </header>
 
     <div class="flex flex-col md:flex-row gap-6 h-full min-h-0">
@@ -103,8 +98,8 @@
                     <div>
                         <label class="block text-xs font-medium text-gray-500 mb-1">Định dạng:</label>
                         <select id="formatSelect" class="w-full border rounded-md px-3 py-2 text-sm outline-none bg-white focus:border-blue-500">
-                            <option value=".wav">.wav</option>
-                            <option value=".mp3">.mp3</option>
+                            <option value=".wav">.wav</option>                            
+	        <option value=".mp3">.mp3</option>
                         </select>
                     </div>
                     <div>
@@ -256,7 +251,6 @@
         
         const loadFilesInput = document.getElementById('loadFilesInput');
         const loadFilesBtn = document.getElementById('loadFilesBtn');
-        const fullscreenBtn = document.getElementById('fullscreenBtn');
 
         // Modal Elements
         const openPlayerBtn = document.getElementById('openPlayerBtn');
@@ -1018,32 +1012,6 @@
                     const targetId = lastPlayedId || (segmentsData.length > 0 ? segmentsData[0].id : null);
                     if (targetId) togglePlay(targetId);
                 }
-            }
-        });
-
-        // --- TOÀN MÀN HÌNH (FULLSCREEN) ---
-        fullscreenBtn.addEventListener('click', () => {
-            if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen().catch((err) => {
-                    console.error(`Lỗi toàn màn hình: ${err.message}`);
-                });
-            } else {
-                if (document.exitFullscreen) {
-                    document.exitFullscreen();
-                }
-            }
-        });
-
-        document.addEventListener('fullscreenchange', () => {
-            const icon = fullscreenBtn.querySelector('i');
-            if (document.fullscreenElement) {
-                icon.classList.remove('fa-expand');
-                icon.classList.add('fa-compress');
-                fullscreenBtn.title = "Thoát toàn màn hình";
-            } else {
-                icon.classList.remove('fa-compress');
-                icon.classList.add('fa-expand');
-                fullscreenBtn.title = "Toàn màn hình";
             }
         });
 
