@@ -1,0 +1,1020 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Splitter - Tách Audio Theo Khoảng Dừng</title>
+    <!-- Sử dụng Tailwind CSS cho giao diện -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Thư viện FontAwesome cho Icon -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- JSZip để nén nhiều file tải về 1 lần -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.css"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- LameJS để hỗ trợ xuất file MP3 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.1/lame.min.js"></script>
+
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f3f4f6; }
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .playing-item { background-color: #eff6ff; border-color: #3b82f6; } /* Highlight khi đang phát */
+        
+        /* Custom range slider cho timeline */
+        input[type=range].timeline {
+            -webkit-appearance: none; width: 100%; background: transparent;
+        }
+        input[type=range].timeline::-webkit-slider-thumb {
+            -webkit-appearance: none; height: 12px; width: 12px; border-radius: 50%;
+            background: #3b82f6; cursor: pointer; margin-top: -4px; box-shadow: 0 0 2px rgba(0,0,0,0.5);
+        }
+        input[type=range].timeline::-webkit-slider-runnable-track {
+            width: 100%; height: 4px; cursor: pointer; background: #e5e7eb; border-radius: 2px;
+        }
+        input[type=range].timeline:focus { outline: none; }
+    </style>
+</head>
+<body class="text-gray-800 h-screen flex flex-col p-4 md:p-6 lg:max-w-6xl mx-auto">
+
+    <header class="mb-6 text-center md:text-left flex items-center gap-3">
+        <div class="bg-blue-600 text-white p-3 rounded-lg shadow-md">
+            <i class="fa-solid fa-scissors text-xl"></i>
+        </div>
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Audio Splitter Web</h1>
+            <p class="text-sm text-gray-500">Tách và nghe thử Audio ngay trên trình duyệt</p>
+        </div>
+    </header>
+
+    <div class="flex flex-col md:flex-row gap-6 h-full min-h-0">
+        <!-- Cột bên trái: Cài đặt -->
+        <div class="w-full md:w-1/3 flex flex-col gap-4 overflow-y-auto custom-scrollbar pr-2 pb-4">
+            
+            <!-- Chọn File -->
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+                <h2 class="font-semibold text-gray-700 mb-3"><i class="fa-solid fa-file-audio mr-2 text-blue-500"></i>1. Chọn file audio</h2>
+                <input type="file" id="audioFileInput" accept="audio/*" class="block w-full text-sm text-gray-500
+                    file:mr-4 file:py-2 file:px-4
+                    file:rounded-full file:border-0
+                    file:text-sm file:font-semibold
+                    file:bg-blue-50 file:text-blue-700
+                    hover:file:bg-blue-100 cursor-pointer
+                "/>
+                <p class="text-xs text-gray-400 mt-2">Hỗ trợ: mp3, wav, m4a, ogg...</p>
+            </div>
+
+            <!-- Cài đặt thuật toán -->
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+                <h2 class="font-semibold text-gray-700 mb-3"><i class="fa-solid fa-sliders mr-2 text-blue-500"></i>2. Cài đặt tách audio</h2>
+                
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Ngưỡng âm thanh (dB):</label>
+                    <div class="flex items-center gap-2">
+                        <input type="range" id="noiseThreshold" min="-80" max="-10" value="-40" class="w-full" oninput="document.getElementById('noiseValue').innerText = this.value + ' dB'">
+                        <span id="noiseValue" class="text-sm w-16 text-right font-mono">-40 dB</span>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-1">Gợi ý: -40dB (ít ồn) đến -30dB (có tiếng ồn nền)</p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Thời gian im lặng tối thiểu:</label>
+                    <div class="flex items-center border rounded-md px-3 py-2 bg-gray-50 focus-within:ring-2 focus-within:ring-blue-500">
+                        <input type="number" id="silenceDuration" min="0.1" max="10.0" step="0.1" value="2.5" class="bg-transparent w-full outline-none text-gray-700">
+                        <span class="text-gray-500 text-sm ml-2">giây</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tiền tố / Hậu tố -->
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+                <h2 class="font-semibold text-gray-700 mb-3"><i class="fa-solid fa-file-signature mr-2 text-blue-500"></i>3. Định dạng tên file</h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">Tiền tố:</label>
+                        <input type="text" id="prefixInput" placeholder="vd: HSK2" class="w-full border rounded-md px-3 py-2 text-sm outline-none focus:border-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">Định dạng:</label>
+                        <select id="formatSelect" class="w-full border rounded-md px-3 py-2 text-sm outline-none bg-white focus:border-blue-500">
+                            <option value=".mp3">.mp3</option>
+                            <option value=".wav">.wav</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">Chất lượng (MP3):</label>
+                        <select id="bitrateSelect" class="w-full border rounded-md px-3 py-2 text-sm outline-none bg-white focus:border-blue-500">
+                            <option value="16">16 kbps</option>
+                            <option value="32">32 kbps</option>
+                            <option value="64">64 kbps</option>
+                            <option value="128" selected>128 kbps</option>
+                            <option value="192">192 kbps</option>
+                            <option value="256">256 kbps</option>
+                            <option value="320">320 kbps</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Nút Action -->
+            <button id="processBtn" disabled class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                <i class="fa-solid fa-scissors"></i> Tách Audio Ngay
+            </button>
+
+            <!-- Trạng thái -->
+            <div id="statusBox" class="hidden rounded-lg p-3 text-sm"></div>
+        </div>
+
+        <!-- Cột bên phải: Danh sách kết quả -->
+        <div class="w-full md:w-2/3 flex flex-col bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            
+            <div class="bg-gray-50 px-4 py-3 border-b flex justify-between items-center flex-wrap gap-2">
+                <h2 class="font-bold text-gray-700"><i class="fa-solid fa-list-ul mr-2"></i>Danh sách các đoạn (<span id="totalCount">0</span>)</h2>
+                
+                <div class="flex gap-2">
+                    <input type="file" id="loadFilesInput" multiple accept="audio/*" class="hidden">
+                    <button id="loadFilesBtn" class="px-3 py-1.5 bg-green-100 text-green-700 rounded-md hover:bg-green-200 text-sm font-medium transition-colors" title="Tải các file audio có sẵn lên để nghe">
+                        <i class="fa-solid fa-folder-open mr-1"></i> Mở files
+                    </button>
+                    <button id="openPlayerBtn" disabled class="px-3 py-1.5 bg-purple-100 text-purple-700 rounded-md hover:bg-purple-200 text-sm font-medium disabled:opacity-50 transition-colors">
+                        <i class="fa-solid fa-headphones mr-1"></i> Trình phát
+                    </button>
+                    <button id="renameBtn" disabled class="px-3 py-1.5 border border-gray-300 rounded-md hover:bg-gray-100 text-sm font-medium disabled:opacity-50 transition-colors text-gray-700">
+                        <i class="fa-solid fa-pen mr-1"></i> Đổi tên
+                    </button>
+                    <button id="downloadAllBtn" disabled class="px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm font-medium disabled:opacity-50 transition-colors shadow-sm">
+                        <i class="fa-solid fa-download mr-1"></i> Tải file ZIP
+                    </button>
+                </div>
+            </div>
+
+            <!-- Công cụ xóa hàng loạt -->
+            <div class="px-4 py-2 border-b bg-gray-50 flex items-center gap-2 flex-wrap text-sm">
+                <span class="font-medium text-gray-600">Xóa theo số:</span>
+                <input type="text" id="batchDeleteInput" placeholder="vd: 1, 2, 5, 10" class="flex-1 min-w-[150px] border rounded py-1 px-2 outline-none focus:border-red-400">
+                <button id="batchDeleteBtn" disabled class="px-3 py-1 bg-red-50 text-red-600 border border-red-200 rounded hover:bg-red-100 transition-colors disabled:opacity-50">
+                    <i class="fa-solid fa-trash-can"></i> Xóa nhanh
+                </button>
+            </div>
+
+            <!-- Container danh sách -->
+            <div class="flex-1 overflow-y-auto custom-scrollbar p-2 bg-gray-100/50" id="segmentContainer">
+                <div class="h-full flex flex-col items-center justify-center text-gray-400" id="emptyState">
+                    <i class="fa-solid fa-music text-4xl mb-3 text-gray-300"></i>
+                    <p>Chưa có dữ liệu. Vui lòng chọn file và bấm "Tách Audio".</p>
+                </div>
+                <!-- Danh sách item sẽ được render ở đây -->
+                <div id="segmentList" class="flex flex-col gap-2"></div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Player Modal -->
+    <div id="playerModal" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm opacity-0 transition-opacity duration-300">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden transform scale-95 transition-transform duration-300" id="playerModalContent">
+            <!-- Header -->
+            <div class="flex justify-between items-center p-4 border-b">
+                <h3 class="font-bold text-gray-800"><i class="fa-solid fa-compact-disc fa-spin-pulse mr-2 text-blue-500"></i>Trình Phát</h3>
+                <button id="closeModalBtn" class="text-gray-400 hover:text-gray-600 transition">
+                    <i class="fa-solid fa-xmark text-xl"></i>
+                </button>
+            </div>
+            
+            <!-- Body -->
+            <div class="p-6 flex flex-col items-center">
+                <div class="w-24 h-24 bg-blue-50 rounded-full flex items-center justify-center mb-4 shadow-inner">
+                    <i class="fa-solid fa-music text-4xl text-blue-400"></i>
+                </div>
+                <h4 id="modalTrackName" class="font-bold text-lg text-gray-800 text-center mb-1 w-full truncate">Chưa có file</h4>
+                <p id="modalTrackIndex" class="text-xs text-gray-500 mb-6">#000</p>
+
+                <!-- Timeline -->
+                <div class="w-full flex items-center gap-2 mb-2">
+                    <span id="modalCurrentTime" class="text-xs text-gray-500 font-mono w-10 text-right">00:00</span>
+                    <input type="range" id="modalSeekBar" value="0" min="0" max="100" step="0.1" class="timeline flex-1">
+                    <span id="modalTotalTime" class="text-xs text-gray-500 font-mono w-10">00:00</span>
+                </div>
+                
+                <!-- Controls -->
+                <div class="w-full flex justify-between items-center mt-4 px-2">
+                    <button id="modalRepeatBtn" class="text-gray-400 hover:text-blue-500 transition focus:outline-none" title="Phát lặp lại 1 bài">
+                        <i class="fa-solid fa-repeat"></i>
+                    </button>
+                    
+                    <div class="flex items-center gap-4">
+                        <button id="modalPrevBtn" class="w-10 h-10 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 flex items-center justify-center transition focus:outline-none">
+                            <i class="fa-solid fa-backward-step"></i>
+                        </button>
+                        
+                        <button id="modalPlayPauseBtn" class="w-14 h-14 rounded-full bg-blue-600 text-white shadow-lg hover:bg-blue-700 hover:scale-105 flex items-center justify-center transition focus:outline-none">
+                            <i id="modalPlayPauseIcon" class="fa-solid fa-play text-xl ml-1"></i>
+                        </button>
+                        
+                        <button id="modalNextBtn" class="w-10 h-10 rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 flex items-center justify-center transition focus:outline-none">
+                            <i class="fa-solid fa-forward-step"></i>
+                        </button>
+                    </div>
+
+                    <button id="modalContinuousBtn" class="text-blue-500 hover:text-blue-600 transition focus:outline-none relative" title="Phát liên tục (Auto-next)">
+                        <i class="fa-solid fa-list-ol"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Trình phát Audio ẩn -->
+    <audio id="audioPlayer" class="hidden"></audio>
+
+    <script>
+        // Các DOM Elements
+        const audioFileInput = document.getElementById('audioFileInput');
+        const processBtn = document.getElementById('processBtn');
+        const noiseThreshold = document.getElementById('noiseThreshold');
+        const silenceDuration = document.getElementById('silenceDuration');
+        const prefixInput = document.getElementById('prefixInput');
+        const formatSelect = document.getElementById('formatSelect');
+        const bitrateSelect = document.getElementById('bitrateSelect');
+        const statusBox = document.getElementById('statusBox');
+        
+        const segmentContainer = document.getElementById('segmentContainer');
+        const emptyState = document.getElementById('emptyState');
+        const segmentList = document.getElementById('segmentList');
+        const totalCount = document.getElementById('totalCount');
+        
+        const renameBtn = document.getElementById('renameBtn');
+        const downloadAllBtn = document.getElementById('downloadAllBtn');
+        const batchDeleteInput = document.getElementById('batchDeleteInput');
+        const batchDeleteBtn = document.getElementById('batchDeleteBtn');
+        
+        const loadFilesInput = document.getElementById('loadFilesInput');
+        const loadFilesBtn = document.getElementById('loadFilesBtn');
+
+        // Modal Elements
+        const openPlayerBtn = document.getElementById('openPlayerBtn');
+        const playerModal = document.getElementById('playerModal');
+        const playerModalContent = document.getElementById('playerModalContent');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        const modalTrackName = document.getElementById('modalTrackName');
+        const modalTrackIndex = document.getElementById('modalTrackIndex');
+        const modalCurrentTime = document.getElementById('modalCurrentTime');
+        const modalTotalTime = document.getElementById('modalTotalTime');
+        const modalSeekBar = document.getElementById('modalSeekBar');
+        const modalPlayPauseBtn = document.getElementById('modalPlayPauseBtn');
+        const modalPlayPauseIcon = document.getElementById('modalPlayPauseIcon');
+        const modalPrevBtn = document.getElementById('modalPrevBtn');
+        const modalNextBtn = document.getElementById('modalNextBtn');
+        const modalRepeatBtn = document.getElementById('modalRepeatBtn');
+        const modalContinuousBtn = document.getElementById('modalContinuousBtn');
+
+        const audioPlayer = document.getElementById('audioPlayer');
+
+        // State variables
+        let audioContext = null;
+        let originalAudioBuffer = null;
+        let segmentsData = []; // Mảng chứa các đoạn { id, originalIndex, start, end, duration, blob, url, fileName }
+        let currentlyPlayingId = null; // ID của đoạn đang phát
+        let lastPlayedId = null; // Ghi nhớ ID vừa phát để dùng phím điều hướng
+        
+        // Modal State
+        let isRepeatMode = false;
+        let isContinuousMode = true; // Mặc định bật phát liên tục
+        let isDraggingSeekbar = false;
+
+        // Xử lý logic khóa ô Bitrate khi chọn file WAV
+        formatSelect.addEventListener('change', (e) => {
+            if (e.target.value === '.wav') {
+                bitrateSelect.disabled = true;
+                bitrateSelect.classList.add('bg-gray-100', 'text-gray-400');
+            } else {
+                bitrateSelect.disabled = false;
+                bitrateSelect.classList.remove('bg-gray-100', 'text-gray-400');
+            }
+        });
+
+        // Bật nút khi có file
+        audioFileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                processBtn.disabled = false;
+                showStatus('Đã nạp file sẵn sàng.', 'blue');
+            } else {
+                processBtn.disabled = true;
+            }
+        });
+
+        // Hàm hiển thị trạng thái
+        function showStatus(msg, type) {
+            statusBox.classList.remove('hidden', 'bg-blue-100', 'text-blue-700', 'bg-yellow-100', 'text-yellow-700', 'bg-green-100', 'text-green-700', 'bg-red-100', 'text-red-700');
+            statusBox.innerHTML = msg;
+            if(type === 'blue') statusBox.classList.add('bg-blue-100', 'text-blue-700');
+            if(type === 'yellow') statusBox.classList.add('bg-yellow-100', 'text-yellow-700');
+            if(type === 'green') statusBox.classList.add('bg-green-100', 'text-green-700');
+            if(type === 'red') statusBox.classList.add('bg-red-100', 'text-red-700');
+        }
+
+        // --- CORE LOGIC: Phát hiện khoảng im lặng và cắt ---
+        processBtn.addEventListener('click', async () => {
+            const file = audioFileInput.files[0];
+            if (!file) return;
+
+            processBtn.disabled = true;
+            showStatus('<i class="fa-solid fa-spinner fa-spin mr-2"></i>Đang đọc và giải mã file audio (có thể mất ít phút cho file lớn)...', 'yellow');
+            
+            try {
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+
+                const arrayBuffer = await file.arrayBuffer();
+                originalAudioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                
+                showStatus('<i class="fa-solid fa-spinner fa-spin mr-2"></i>Đang phân tích dải âm để tìm khoảng lặng...', 'yellow');
+
+                const dbThreshold = parseFloat(noiseThreshold.value);
+                const minSilenceSec = parseFloat(silenceDuration.value);
+                
+                setTimeout(() => {
+                    analyzeAndSplit(originalAudioBuffer, dbThreshold, minSilenceSec);
+                }, 50);
+
+            } catch (error) {
+                console.error(error);
+                showStatus(`<i class="fa-solid fa-triangle-exclamation mr-2"></i>Lỗi đọc file: ${error.message}`, 'red');
+                processBtn.disabled = false;
+            }
+        });
+
+        function analyzeAndSplit(buffer, dbThreshold, minSilenceSec) {
+            try {
+                const thresholdAmplitude = Math.pow(10, dbThreshold / 20);
+                const channelData = buffer.getChannelData(0);
+                const sampleRate = buffer.sampleRate;
+                const minSilenceSamples = sampleRate * minSilenceSec;
+
+                let detectedSegments = [];
+                let inSilence = false;
+                let silenceStartSample = 0;
+                let currentSpeechStart = 0;
+
+                for (let i = 0; i < channelData.length; i++) {
+                    const sampleAbs = Math.abs(channelData[i]);
+                    
+                    if (sampleAbs < thresholdAmplitude) {
+                        if (!inSilence) {
+                            inSilence = true;
+                            silenceStartSample = i;
+                        }
+                    } else {
+                        if (inSilence) {
+                            inSilence = false;
+                            const silenceLen = i - silenceStartSample;
+                            
+                            if (silenceLen >= minSilenceSamples) {
+                                if (currentSpeechStart < silenceStartSample) {
+                                    detectedSegments.push({
+                                        start: currentSpeechStart,
+                                        end: silenceStartSample
+                                    });
+                                }
+                                currentSpeechStart = i;
+                            }
+                        }
+                    }
+                }
+
+                if (currentSpeechStart < channelData.length) {
+                    detectedSegments.push({
+                        start: currentSpeechStart,
+                        end: channelData.length
+                    });
+                }
+
+                // Lọc bỏ các đoạn quá ngắn (dưới 0.5s)
+                const minSegmentSamples = sampleRate * 0.5;
+                const validSegments = detectedSegments.filter(seg => (seg.end - seg.start) >= minSegmentSamples);
+
+                // Dùng async/await giả qua setTimeout để UI không bị đơ
+                setTimeout(() => {
+                    generateAudioBlobs(validSegments, buffer);
+                }, 50);
+
+            } catch (err) {
+                console.error(err);
+                showStatus('Lỗi trong quá trình phân tích: ' + err.message, 'red');
+                processBtn.disabled = false;
+            }
+        }
+
+        async function generateAudioBlobs(segmentBoundaries, originalBuffer) {
+            // Xóa dữ liệu cũ, dừng audio nếu đang phát
+            stopCurrentAudio();
+            segmentsData.forEach(s => URL.revokeObjectURL(s.url));
+            segmentsData = [];
+            lastPlayedId = null;
+
+            const prefix = prefixInput.value.trim();
+            const ext = formatSelect.value;
+            const kbps = parseInt(bitrateSelect.value);
+
+            // Xử lý từng file một để không làm treo giao diện
+            for (let i = 0; i < segmentBoundaries.length; i++) {
+                showStatus(`<i class="fa-solid fa-spinner fa-spin mr-2"></i>Đang xuất file ${i + 1} / ${segmentBoundaries.length}...`, 'yellow');
+                
+                // Trả lại quyền điều khiển cho UI 10ms để hiện text cập nhật
+                await new Promise(resolve => setTimeout(resolve, 10));
+
+                const b = segmentBoundaries[i];
+                const startSec = b.start / originalBuffer.sampleRate;
+                const endSec = b.end / originalBuffer.sampleRate;
+                const durationSec = endSec - startSec;
+
+                let blob;
+                if (ext === '.mp3') {
+                    blob = audioBufferToMp3Blob(originalBuffer, b.start, b.end, kbps);
+                } else {
+                    blob = audioBufferToWavBlob(originalBuffer, b.start, b.end);
+                }
+
+                const blobUrl = URL.createObjectURL(blob);
+                const numStr = String(i + 1).padStart(3, '0');
+                const fileName = prefix ? `${prefix}_${numStr}${ext}` : `${numStr}${ext}`;
+
+                segmentsData.push({
+                    id: `seg_${Date.now()}_${i}`,
+                    originalIndex: i + 1,
+                    start: startSec,
+                    duration: durationSec,
+                    blob: blob,
+                    url: blobUrl,
+                    fileName: fileName
+                });
+            }
+
+            showStatus(`<i class="fa-solid fa-check mr-2"></i>Thành công! Đã tách được ${segmentsData.length} đoạn.`, 'green');
+            processBtn.disabled = false;
+            
+            updateUIState();
+            renderSegments();
+        }
+
+        // --- HÀM TẠO FILE MP3 TỪ TRÌNH DUYỆT ---
+        function audioBufferToMp3Blob(buffer, startSample, endSample, kbps) {
+            const numChannels = buffer.numberOfChannels;
+            const sampleRate = buffer.sampleRate;
+            
+            // LameJS hỗ trợ 1 hoặc 2 kênh
+            const channels = numChannels >= 2 ? 2 : 1; 
+            const mp3encoder = new lamejs.Mp3Encoder(channels, sampleRate, kbps);
+            const mp3Data = [];
+            
+            const left = buffer.getChannelData(0);
+            const right = channels === 2 ? buffer.getChannelData(1) : left;
+            
+            // LameJS xử lý tốt nhất theo các chunk 1152 samples
+            const sampleBlockSize = 1152; 
+            
+            for (let i = startSample; i < endSample; i += sampleBlockSize) {
+                const chunkLength = Math.min(sampleBlockSize, endSample - i);
+                const leftChunk = new Int16Array(chunkLength);
+                const rightChunk = channels === 2 ? new Int16Array(chunkLength) : null;
+                
+                for (let j = 0; j < chunkLength; j++) {
+                    // Chuyển đổi mảng Float32 (-1 đến 1) sang PCM 16-bit (-32768 đến 32767)
+                    let lSample = left[i + j];
+                    lSample = Math.max(-1, Math.min(1, lSample));
+                    leftChunk[j] = lSample < 0 ? lSample * 0x8000 : lSample * 0x7FFF;
+                    
+                    if (channels === 2) {
+                        let rSample = right[i + j];
+                        rSample = Math.max(-1, Math.min(1, rSample));
+                        rightChunk[j] = rSample < 0 ? rSample * 0x8000 : rSample * 0x7FFF;
+                    }
+                }
+                
+                let mp3buf;
+                if (channels === 1) {
+                    mp3buf = mp3encoder.encodeBuffer(leftChunk);
+                } else {
+                    mp3buf = mp3encoder.encodeBuffer(leftChunk, rightChunk);
+                }
+                
+                if (mp3buf.length > 0) {
+                    mp3Data.push(mp3buf);
+                }
+            }
+            
+            const mp3buf = mp3encoder.flush();
+            if (mp3buf.length > 0) {
+                mp3Data.push(mp3buf);
+            }
+            
+            return new Blob(mp3Data, { type: 'audio/mp3' });
+        }
+
+        // --- HÀM TẠO FILE WAV TỪ TRÌNH DUYỆT ---
+        function audioBufferToWavBlob(buffer, startSample, endSample) {
+            const numChannels = buffer.numberOfChannels;
+            const sampleRate = buffer.sampleRate;
+            const length = endSample - startSample;
+            
+            const blockAlign = numChannels * 2; 
+            const byteRate = sampleRate * blockAlign;
+            const dataSize = length * blockAlign;
+            const bufferArray = new ArrayBuffer(44 + dataSize);
+            const view = new DataView(bufferArray);
+
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + dataSize, true);
+            writeString(view, 8, 'WAVE');
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true); 
+            view.setUint16(20, 1, true); 
+            view.setUint16(22, numChannels, true); 
+            view.setUint32(24, sampleRate, true); 
+            view.setUint32(28, byteRate, true); 
+            view.setUint16(32, blockAlign, true); 
+            view.setUint16(34, 16, true); 
+            writeString(view, 36, 'data');
+            view.setUint32(40, dataSize, true);
+
+            let offset = 44;
+            const channels = [];
+            for (let i = 0; i < numChannels; i++) {
+                channels.push(buffer.getChannelData(i));
+            }
+
+            for (let i = 0; i < length; i++) {
+                const sampleIndex = startSample + i;
+                for (let channel = 0; channel < numChannels; channel++) {
+                    let sample = channels[channel][sampleIndex];
+                    sample = Math.max(-1, Math.min(1, sample));
+                    sample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+                    view.setInt16(offset, sample, true);
+                    offset += 2;
+                }
+            }
+
+            return new Blob([view], { type: 'audio/wav' });
+        }
+
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+
+        // --- QUẢN LÝ GIAO DIỆN & ÂM THANH ---
+        function formatTime(sec) {
+            const m = Math.floor(sec / 60);
+            const s = Math.floor(sec % 60);
+            return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+
+        function renderSegments() {
+            segmentList.innerHTML = '';
+            
+            if (segmentsData.length === 0) {
+                emptyState.style.display = 'flex';
+                return;
+            }
+            emptyState.style.display = 'none';
+            totalCount.innerText = segmentsData.length;
+
+            segmentsData.forEach((seg) => {
+                const item = document.createElement('div');
+                const isPlaying = seg.id === currentlyPlayingId;
+                
+                // Set class dựa trên việc có đang phát hay không
+                item.className = `flex items-center justify-between p-3 border rounded-lg shadow-sm transition-colors ${isPlaying ? 'playing-item' : 'bg-white border-gray-200 hover:border-blue-300'}`;
+                item.id = `segmentBox_${seg.id}`;
+
+                item.innerHTML = `
+                    <div class="flex items-center gap-3 overflow-hidden">
+                        <div class="bg-gray-100 text-gray-500 font-mono text-xs px-2 py-1 rounded w-10 text-center flex-shrink-0">
+                            #${seg.originalIndex}
+                        </div>
+                        <div class="flex flex-col min-w-0">
+                            <span class="font-medium ${isPlaying ? 'text-blue-700' : 'text-gray-800'} text-sm truncate flex items-center gap-2">
+                                <i class="fa-solid fa-file-audio ${isPlaying ? 'text-blue-500' : 'text-gray-400'} text-xs"></i> 
+                                ${seg.fileName}
+                            </span>
+                            <span class="text-xs text-gray-500">
+                                Bắt đầu: ${formatTime(seg.start)} | Độ dài: ${seg.duration.toFixed(1)}s
+                            </span>
+                        </div>
+                    </div>
+                    <div class="flex gap-2 flex-shrink-0">
+                        <!-- Nút Play/Stop nội tuyến -->
+                        <button onclick="togglePlay('${seg.id}')" id="playBtn_${seg.id}" class="w-8 h-8 rounded-full ${isPlaying ? 'bg-blue-100 text-blue-600' : 'text-blue-500 hover:bg-blue-50'} flex items-center justify-center transition focus:outline-none" title="${isPlaying ? 'Dừng' : 'Nghe thử'}">
+                            <i class="fa-solid ${isPlaying ? 'fa-stop' : 'fa-play'}"></i>
+                        </button>
+                        
+                        <!-- Nút Xóa -->
+                        <button onclick="deleteSingleSegment('${seg.id}')" class="w-8 h-8 rounded-full text-red-500 hover:bg-red-50 flex items-center justify-center transition focus:outline-none" title="Xóa đoạn này">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </div>
+                `;
+                segmentList.appendChild(item);
+            });
+        }
+
+        function updateUIState() {
+            const hasData = segmentsData.length > 0;
+            totalCount.innerText = segmentsData.length;
+            
+            openPlayerBtn.disabled = !hasData;
+            renameBtn.disabled = !hasData;
+            downloadAllBtn.disabled = !hasData;
+            batchDeleteBtn.disabled = !hasData;
+        }
+
+        // --- CÁC HÀM XỬ LÝ PLAYBACK & MODAL ---
+        window.togglePlay = function(id) {
+            const seg = segmentsData.find(s => s.id === id);
+            if (!seg) return;
+
+            if (currentlyPlayingId === id) {
+                // Đang phát file này -> Bấm để Dừng
+                pauseAudio();
+            } else {
+                // Đang phát file khác -> Dừng file cũ, Phát file mới
+                playAudioSegment(seg);
+            }
+        }
+
+        function playAudioSegment(seg) {
+            audioPlayer.src = seg.url;
+            audioPlayer.play();
+            currentlyPlayingId = seg.id;
+            lastPlayedId = seg.id;
+            
+            // Cập nhật Modal
+            modalTrackName.innerText = seg.fileName;
+            modalTrackIndex.innerText = `Đoạn #${seg.originalIndex}`;
+            modalTotalTime.innerText = formatTime(seg.duration);
+            modalSeekBar.value = 0;
+            modalCurrentTime.innerText = "00:00";
+            updatePlayPauseIcon(true);
+            
+            renderSegments(); // Cập nhật lại UI để bôi xanh thẻ đang phát
+        }
+
+        function pauseAudio() {
+            audioPlayer.pause();
+            currentlyPlayingId = null;
+            updatePlayPauseIcon(false);
+            renderSegments(); // Reset UI của thẻ đang phát về bình thường
+        }
+
+        function stopCurrentAudio() {
+            if (currentlyPlayingId) {
+                audioPlayer.pause();
+                audioPlayer.currentTime = 0;
+                currentlyPlayingId = null;
+                updatePlayPauseIcon(false);
+                renderSegments(); 
+            }
+        }
+
+        function updatePlayPauseIcon(isPlaying) {
+            if (isPlaying) {
+                modalPlayPauseIcon.classList.remove('fa-play', 'ml-1');
+                modalPlayPauseIcon.classList.add('fa-pause');
+            } else {
+                modalPlayPauseIcon.classList.remove('fa-pause');
+                modalPlayPauseIcon.classList.add('fa-play', 'ml-1');
+            }
+        }
+
+        function getTargetIndex(offset) {
+            if (segmentsData.length === 0) return -1;
+            let currentIndex = -1;
+            if (currentlyPlayingId) currentIndex = segmentsData.findIndex(s => s.id === currentlyPlayingId);
+            else if (lastPlayedId) currentIndex = segmentsData.findIndex(s => s.id === lastPlayedId);
+
+            let targetIndex = currentIndex !== -1 ? currentIndex + offset : 0;
+            if (targetIndex >= segmentsData.length) targetIndex = segmentsData.length - 1;
+            if (targetIndex < 0) targetIndex = 0;
+            return targetIndex;
+        }
+
+        function playNext() {
+            const targetIndex = getTargetIndex(1);
+            if (targetIndex !== -1) playAudioSegment(segmentsData[targetIndex]);
+            scrollToPlayingItem(segmentsData[targetIndex]?.id);
+        }
+
+        function playPrev() {
+            const targetIndex = getTargetIndex(-1);
+            if (targetIndex !== -1) playAudioSegment(segmentsData[targetIndex]);
+            scrollToPlayingItem(segmentsData[targetIndex]?.id);
+        }
+
+        function scrollToPlayingItem(id) {
+            if(!id) return;
+            const itemEl = document.getElementById(`segmentBox_${id}`);
+            if (itemEl) itemEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        // Lắng nghe sự kiện audio chạy xong
+        audioPlayer.addEventListener('ended', () => {
+            if (isRepeatMode) {
+                // Lặp lại bài hiện tại
+                audioPlayer.currentTime = 0;
+                audioPlayer.play();
+            } else if (isContinuousMode) {
+                // Tự động phát bài tiếp theo nếu không phải bài cuối
+                let currentIndex = segmentsData.findIndex(s => s.id === currentlyPlayingId);
+                if (currentIndex !== -1 && currentIndex < segmentsData.length - 1) {
+                    playNext();
+                } else {
+                    currentlyPlayingId = null;
+                    updatePlayPauseIcon(false);
+                    renderSegments();
+                }
+            } else {
+                // Dừng
+                currentlyPlayingId = null;
+                updatePlayPauseIcon(false);
+                renderSegments();
+            }
+        });
+
+        // Timeline cập nhật
+        audioPlayer.addEventListener('timeupdate', () => {
+            if (!isDraggingSeekbar && audioPlayer.duration) {
+                const percent = (audioPlayer.currentTime / audioPlayer.duration) * 100;
+                modalSeekBar.value = percent;
+                modalCurrentTime.innerText = formatTime(audioPlayer.currentTime);
+            }
+        });
+
+        // Kéo thả timeline
+        modalSeekBar.addEventListener('mousedown', () => isDraggingSeekbar = true);
+        modalSeekBar.addEventListener('touchstart', () => isDraggingSeekbar = true);
+        
+        modalSeekBar.addEventListener('input', () => {
+            if(audioPlayer.duration) {
+                modalCurrentTime.innerText = formatTime((modalSeekBar.value / 100) * audioPlayer.duration);
+            }
+        });
+
+        modalSeekBar.addEventListener('change', () => {
+            if (audioPlayer.duration) {
+                audioPlayer.currentTime = (modalSeekBar.value / 100) * audioPlayer.duration;
+            }
+            isDraggingSeekbar = false;
+        });
+        modalSeekBar.addEventListener('mouseup', () => isDraggingSeekbar = false);
+        modalSeekBar.addEventListener('touchend', () => isDraggingSeekbar = false);
+
+        // --- SỰ KIỆN MODAL ---
+        openPlayerBtn.addEventListener('click', () => {
+            playerModal.classList.remove('hidden');
+            setTimeout(() => {
+                playerModal.classList.remove('opacity-0');
+                playerModalContent.classList.remove('scale-95');
+                playerModalContent.classList.add('scale-100');
+            }, 10);
+            
+            // Cập nhật info nếu chưa có gì phát
+            if (!currentlyPlayingId && lastPlayedId) {
+                const seg = segmentsData.find(s => s.id === lastPlayedId);
+                if(seg) {
+                    modalTrackName.innerText = seg.fileName;
+                    modalTrackIndex.innerText = `Đoạn #${seg.originalIndex}`;
+                    modalTotalTime.innerText = formatTime(seg.duration);
+                }
+            } else if (!currentlyPlayingId && segmentsData.length > 0) {
+                const seg = segmentsData[0];
+                modalTrackName.innerText = seg.fileName;
+                modalTrackIndex.innerText = `Đoạn #${seg.originalIndex}`;
+                modalTotalTime.innerText = formatTime(seg.duration);
+            }
+        });
+
+        closeModalBtn.addEventListener('click', () => {
+            playerModal.classList.add('opacity-0');
+            playerModalContent.classList.remove('scale-100');
+            playerModalContent.classList.add('scale-95');
+            setTimeout(() => {
+                playerModal.classList.add('hidden');
+            }, 300);
+        });
+
+        // Đóng modal khi click ra ngoài
+        playerModal.addEventListener('click', (e) => {
+            if (e.target === playerModal) {
+                closeModalBtn.click();
+            }
+        });
+
+        // Nút điều khiển trong Modal
+        modalPlayPauseBtn.addEventListener('click', () => {
+            if (currentlyPlayingId) {
+                pauseAudio();
+            } else {
+                const targetId = lastPlayedId || (segmentsData.length > 0 ? segmentsData[0].id : null);
+                if (targetId) togglePlay(targetId);
+            }
+        });
+
+        modalPrevBtn.addEventListener('click', playPrev);
+        modalNextBtn.addEventListener('click', playNext);
+
+        modalRepeatBtn.addEventListener('click', () => {
+            isRepeatMode = !isRepeatMode;
+            if (isRepeatMode) {
+                modalRepeatBtn.classList.remove('text-gray-400');
+                modalRepeatBtn.classList.add('text-blue-500');
+            } else {
+                modalRepeatBtn.classList.add('text-gray-400');
+                modalRepeatBtn.classList.remove('text-blue-500');
+            }
+        });
+
+        modalContinuousBtn.addEventListener('click', () => {
+            isContinuousMode = !isContinuousMode;
+            if (isContinuousMode) {
+                modalContinuousBtn.classList.remove('text-gray-400');
+                modalContinuousBtn.classList.add('text-blue-500');
+            } else {
+                modalContinuousBtn.classList.add('text-gray-400');
+                modalContinuousBtn.classList.remove('text-blue-500');
+            }
+        });
+
+
+        // --- CÁC HÀM XỬ LÝ KHÁC (XÓA, ĐỔI TÊN, TẢI VỀ) ---
+
+        // Xóa đơn lẻ
+        window.deleteSingleSegment = function(id) {
+            if(confirm("Xóa file này khỏi danh sách?")) {
+                const index = segmentsData.findIndex(s => s.id === id);
+                if (index > -1) {
+                    // Nếu đang phát file này thì dừng
+                    if (currentlyPlayingId === id) stopCurrentAudio();
+                    
+                    URL.revokeObjectURL(segmentsData[index].url);
+                    segmentsData.splice(index, 1);
+                    
+                    renderSegments();
+                    updateUIState();
+                }
+            }
+        }
+
+        // Xóa hàng loạt
+        batchDeleteBtn.addEventListener('click', () => {
+            const input = batchDeleteInput.value.trim();
+            if (!input) {
+                alert("Vui lòng nhập số cần xóa (vd: 1, 2, 5)");
+                return;
+            }
+
+            const numbers = input.split(',').map(n => parseInt(n.trim())).filter(n => !isNaN(n));
+            if (numbers.length === 0) return;
+
+            if (confirm(`Bạn muốn xóa ${numbers.length} đoạn có số gốc là: ${numbers.join(', ')}?`)) {
+                let deletedCount = 0;
+                
+                segmentsData = segmentsData.filter(seg => {
+                    if (numbers.includes(seg.originalIndex)) {
+                        if (seg.id === currentlyPlayingId) stopCurrentAudio();
+                        URL.revokeObjectURL(seg.url);
+                        deletedCount++;
+                        return false;
+                    }
+                    return true;
+                });
+
+                alert(`Đã xóa thành công ${deletedCount} file.`);
+                batchDeleteInput.value = '';
+                renderSegments();
+                updateUIState();
+            }
+        });
+
+        // Đổi tên
+        renameBtn.addEventListener('click', () => {
+            const prefix = prefixInput.value.trim();
+            const ext = formatSelect.value;
+            
+            segmentsData.forEach((seg, index) => {
+                const numStr = String(index + 1).padStart(3, '0');
+                seg.fileName = prefix ? `${prefix}_${numStr}${ext}` : `${numStr}${ext}`;
+            });
+            
+            renderSegments();
+            alert("Đã cập nhật tên file theo thứ tự mới hiện tại.");
+        });
+
+        // Tải xuống tất cả bằng file ZIP
+        downloadAllBtn.addEventListener('click', async () => {
+            if (segmentsData.length === 0) return;
+            
+            const btnOriginalText = downloadAllBtn.innerHTML;
+            downloadAllBtn.disabled = true;
+            downloadAllBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Đang nén file...';
+
+            try {
+                const zip = new JSZip();
+                
+                segmentsData.forEach(seg => {
+                    zip.file(seg.fileName, seg.blob);
+                });
+
+                const content = await zip.generateAsync({ type: "blob" });
+                
+                const a = document.createElement("a");
+                a.href = URL.createObjectURL(content);
+                a.download = `Audio_Segments_${Date.now()}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(a.href);
+
+                showStatus(`<i class="fa-solid fa-check mr-2"></i>Đã tải xuống file ZIP thành công!`, 'green');
+
+            } catch (err) {
+                console.error(err);
+                alert("Lỗi khi tạo file nén: " + err.message);
+            } finally {
+                downloadAllBtn.disabled = false;
+                downloadAllBtn.innerHTML = btnOriginalText;
+            }
+        });
+
+        // --- TẢI FILE AUDIO CÓ SẴN (MỞ FILES) ---
+        loadFilesBtn.addEventListener('click', () => {
+            loadFilesInput.click();
+        });
+
+        loadFilesInput.addEventListener('change', async (e) => {
+            const files = e.target.files;
+            if (!files || files.length === 0) return;
+
+            showStatus(`<i class="fa-solid fa-spinner fa-spin mr-2"></i>Đang tải ${files.length} file audio...`, 'yellow');
+            
+            let loadedCount = 0;
+            // Tìm số thứ tự tiếp theo (nếu danh sách đang có sẵn file)
+            const startIndex = segmentsData.length > 0 ? Math.max(...segmentsData.map(s => s.originalIndex)) : 0;
+
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const blobUrl = URL.createObjectURL(file);
+                
+                // Lấy độ dài (duration) của file
+                const duration = await new Promise((resolve) => {
+                    const tempAudio = new Audio(blobUrl);
+                    tempAudio.addEventListener('loadedmetadata', () => resolve(tempAudio.duration));
+                    tempAudio.addEventListener('error', () => resolve(0));
+                });
+
+                segmentsData.push({
+                    id: `loaded_${Date.now()}_${i}`,
+                    originalIndex: startIndex + i + 1,
+                    start: 0, // File có sẵn nên thời gian bắt đầu gốc là 0
+                    duration: duration,
+                    blob: file, // Bản thân File đã là một Blob
+                    url: blobUrl,
+                    fileName: file.name
+                });
+                loadedCount++;
+            }
+
+            loadFilesInput.value = ''; // Reset input để có thể chọn lại file cũ nếu muốn
+            showStatus(`<i class="fa-solid fa-check mr-2"></i>Đã tải thành công ${loadedCount} file!`, 'green');
+            
+            updateUIState();
+            renderSegments();
+        });
+
+        // --- ĐIỀU HƯỚNG BẰNG BÀN PHÍM ---
+        document.addEventListener('keydown', (e) => {
+            // Không can thiệp nếu người dùng đang gõ vào các ô text (Prefix, Xóa số...)
+            if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return;
+            if (segmentsData.length === 0) return;
+
+            if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                playPrev();
+            } else if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                playNext();
+            } else if (e.key === ' ') {
+                e.preventDefault();
+                if (currentlyPlayingId) pauseAudio();
+                else {
+                    const targetId = lastPlayedId || (segmentsData.length > 0 ? segmentsData[0].id : null);
+                    if (targetId) togglePlay(targetId);
+                }
+            }
+        });
+
+    </script>
+</body>
+</html>
